@@ -8,6 +8,8 @@ from tkinter import *
 from tkinter import filedialog
 import tkinter.font as tkFont
 import os
+import uvicorn
+import fastapi
 import youtube_dl
 import pandas as pd
 import numpy as np
@@ -16,6 +18,17 @@ nlp = spacy.load("en_core_web_sm")
 
 ####################################################################################
 # Function Block
+
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+
+
+@app.get('/')
+def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 def get_caption(url):
     global video_title
