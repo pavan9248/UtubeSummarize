@@ -8,6 +8,11 @@ from pytube import YouTube
 import uvicorn
 import fastapi
 from googletrans import Translator
+import assemblyai as aai
+from transformers import pipeline
+from summarizer import Summarizer
+import torch
+
 
 
 
@@ -37,11 +42,11 @@ def download_audio(youtube_url, output_path, filename="audio"):
 aai.settings.api_key = "d31b46660902421d8b7de5c2fd378c9a"
 
 # URL of the file to transcribe
-FILE_URL = "/content/output/audio.mp3"
+FILE_URL = "audio/audio.mp3"
 
 transcriber = aai.Transcriber()
 transcript = transcriber.transcribe(FILE_URL)
-
+    
 print(transcript.text)
 
 def detect_language(text):
@@ -74,6 +79,30 @@ if __name__ == "__main__":
     # Print the results
     print("Original Text:", mixed_text)
     print("Translated Text:", translated_text)
+
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+
+# Split the content into chunks of 1000 tokens
+chunk_size = 1000
+chunks = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)]
+
+# Summarize each chunk and store the results
+summaries = []
+for chunk in chunks:
+    summary = summarizer(chunk, max_length=40, min_length=8, length_penalty=2.0, num_beams=4, early_stopping=True)
+    summaries.append(summary[0]['summary_text'])
+
+text = '\n'.join(summaries)
+print(text)
+
+# Load BertSum model
+bertsum_model = Summarizer()
+
+# Summarize the content to 40 lines
+summary = bertsum_model(text, num_sentences=40)
+
+# Print the summarized content
+print(summary)
 
 
 if __name__ == '__main__':
