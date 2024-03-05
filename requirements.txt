@@ -9,3 +9,6 @@ fastapi-sqlalchemy
 scikit-image
 scikit-learn
 uvicorn
+pytube
+assemblyai
+googletrans
