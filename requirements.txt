@@ -8,3 +8,4 @@ spacy
 fastapi-sqlalchemy
 scikit-image
 scikit-learn
+uvicorn
