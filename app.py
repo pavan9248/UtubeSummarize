@@ -1,5 +1,5 @@
 import re
-from fastapi import FastAPI, Request, File, UploadFile,Form
+from fastapi import FastAPI, Request, File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -14,10 +14,18 @@ from pydantic import BaseModel
 import openai
 from transformers import pipeline
 from summarizer import Summarizer
+from langdetect import detect
+from transformers import GPT2Tokenizer, GPT2LMHeadModel
 import torch
 import requests
+import youtube_transcript_api
+from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptAvailable, TranscriptsDisabled
+from youtube_transcript_api._errors import NoTranscriptAvailable, TranscriptsDisabled
 from gtts import gTTS
+
 import shutil
+from language_mappings import language_map
+
 load_dotenv()
 
 app = FastAPI()
@@ -28,93 +36,140 @@ class URLItem(BaseModel):
     url: str
     language: str
 
-
-
-
-
-
 @app.get('/')
 def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
-
 
 @app.get('/result')
 def index(request: Request):
     return templates.TemplateResponse("result.html", {"request": request})
 
-
-
-
- 
-@app.post("/submit_url",response_class=HTMLResponse)
-async def submit_url(request: Request,url: str = Form(...), language: str = Form(...)): 
+@app.post("/submit_url", response_class=HTMLResponse)
+async def submit_url(request: Request, url: str = Form(...), language: str = Form(...)): 
     # Process the URL and language data as needed
+    
     print(f"Received URL: {url}, Language: {language}")
     
-    youtube_url = url
-    output_path = "./output"
-    download_audio(youtube_url, output_path, filename="audio")
-    
-    
-    # # URL of the file to transcribe
-    # FILE_URL = "./output/audio.mp3"
-
-    # transcriber = aai.Transcriber()
-    # transcript = transcriber.transcribe(FILE_URL)
-
-
-
-    # mixed_text = transcript.text
-    # # Translate the mixed text to English
-    # print("Original Text:", mixed_text)
-
-    # translated_text = translate_text(mixed_text)
-   
-    API_KEY = os.getenv("API_KEY")
-    model_id = 'whisper-1'
-    language = "en"
-    
-
+    download_audio(url, output_path="./output", filename="audio")
     audio_file_path = './output/audio.mp3'
-    audio_file = open(audio_file_path, 'rb')
-
-    response = openai.Audio.translate(
-        api_key=API_KEY,
-        model=model_id,
-        file=audio_file
-    )
-    translation_text = response.text
-    # Print the results
-    # print("Translated Text:", translation_text)
     
+    transcript_text = get_transcript(url, target_language='en')
+    # refine_text = preprocess_transcript(transcript_text)
+    youtube_url = url
+    # output_path = "./output"
+    
+    
+    if not transcript_text:
+        
+        translation_text = translate_audio( target_language='en')
+    else:
+        translation_text = transcript_text
+        
+    print(translation_text)
+
+    # Initialize the summarization pipeline
     summarizer = pipeline("summarization")
 
-    result =summarizer(translation_text, max_length=250, min_length=100, do_sample=False)
+    # Define the maximum length of each chunk
+    max_chunk_length = 1000  # Adjust as needed
+
+    # Split the translation_text into smaller chunks
+    chunks = [translation_text[i:i+max_chunk_length] for i in range(0, len(translation_text), max_chunk_length)]
+
+    # Initialize an empty list to store the summaries
+    summary_texts = []
+
+    # Summarize each chunk separately
+    for chunk in chunks:
+        result = summarizer(chunk, max_length=20, min_length=10, do_sample=False)
+        summary_texts.append(result[0]['summary_text'])
+
+    # Concatenate the summaries to get the final summary for the entire text
+    final_summary = " ".join(summary_texts)
+
+    print("summary_text :",final_summary)
+
     
-
-    summary_text = result[0]['summary_text']
-    print("summary_text :",summary_text)
-
-    tts = gTTS(summary_text, lang='en')
+    # Generate audio for the summary
+    tts = gTTS(final_summary, lang='en')
 
     # Save the audio as a temporary file
     audio_file = "summary_audio.mp3"
     tts.save(audio_file)
-    
-    shutil.move(f"{audio_file}", "static/summary_audio.mp3") 
-    
+
+    # Move the audio file to the static directory
+    shutil.move(f"{audio_file}", "static/summary_audio.mp3")
+
+    #Embedded url formation
+    def get_embedded_url(url):
+        if "youtu.be/" in url:
+            video_id = url.split("youtu.be/")[1].split("?")[0]
+        elif "watch?v=" in url:
+            video_id = url.split("v=")[1].split("&")[0]
+        else:
+            raise ValueError("Invalid YouTube URL format")
+        embedded_url = f"https://www.youtube-nocookie.com/embed/{video_id}"
+        return embedded_url
+        
+
+    # Render the result.html template with the summary and audio file
     context = {
         "request": request,
-        "url":url,
-        "summary_text":summary_text,
-        "audio_file":audio_file
+        "url": get_embedded_url(url),
+        "summary_text": final_summary,
+        "audio_file": audio_file
     }
-
+    
     return templates.TemplateResponse("result.html", context)
 
+def translate_audio(target_language='en'):
+    audio_file_path = './output/audio.mp3'
+    API_KEY = os.getenv("API_KEY")
+    model_id = 'whisper-1'
 
+    with open(audio_file_path, 'rb') as audio_file:
+        response = openai.Audio.translate(
+            api_key=API_KEY,
+            model=model_id,
+            file=audio_file,
+            target_language=target_language
+        )
+        text =response.text
+    return text
+    
+def get_transcript(url, target_language='en'):
+    audio_file_path = './output/audio.mp3'
+    try:
+        if "youtu.be/" in url:
+            video_id = url.split("youtu.be/")[1].split("?")[0]
+        elif "watch?v=" in url:
+            video_id = url.split("v=")[1].split("&")[0]
+        else:
+            raise ValueError("Invalid YouTube URL format")
 
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
+        # Extract the languages from the transcript list
+        available_languages = [transcript.language for transcript in transcript_list]
+        lang = get_language_code(available_languages[0].split('(')[0].strip())
+   
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+        text = " ".join(line['text'] for line in transcript)
+        if lang!='en':
+            text=translate_audio(target_language='en')
+        return text
+
+    except (NoTranscriptAvailable, TranscriptsDisabled):
+        return None
+
+def get_language_code(language_name):
+    # You need to define language_map somewhere in your code
+    return language_map.get(language_name)
+
+def translate_text(text , target_language='en'):
+    translator = Translator()
+    translated_text = translator.translate(text, dest=target_language).text
+    return translated_text
 
 def download_audio(youtube_url, output_path, filename="audio"):
     yt = YouTube(youtube_url)
@@ -129,49 +184,20 @@ def download_audio(youtube_url, output_path, filename="audio"):
     new_file_path = os.path.join(output_path, f"{filename}.mp3")
     os.rename(downloaded_file_path, new_file_path)
 
-
+# def preprocess_transcript(transcript):
+    
+#     # Remove punctuation
+#     transcript = re.sub(r'[^\w\s]', '', transcript)
+        
+#     # Remove non-verbal expressions
+#     non_verbal_expressions = ["[laughter]", "[music]", "[applause]"]
+#     for expression in non_verbal_expressions:
+#         transcript = transcript.replace(expression, "")
+    
+#     # Remove extra whitespace
+#     transcript = ' '.join(transcript.split())
+    
+#     return transcript
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=8000)
-    
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # aai.settings.api_key = "098ba046cf1647ff89705531acd882bb"
-
-    # transcriber = aai.Transcriber()
-
-    # audio_url = "./output/audio.mp3"
-
-    # transcript = transcriber.transcribe(audio_url)
-
-    # prompt = "Provide a brief summary of the transcript."
-
-    # result = transcript.lemur.task(prompt)
-
-    # print(result.response)
-    
