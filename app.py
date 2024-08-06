@@ -21,7 +21,7 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 # Prompt for summarizing the transcript
 prompt = """You are a YouTube video summarizer. You will be taking the 
 transcript text and summarizing the entire video and providing the important summary 
-in points within 200 words. Please provide the summary of the text given here: """
+in points within 200 words and also important topics in 3 to 4 points. Please provide them for the text given here: """
 
 translate_prompt = """You are a language translator. You will be provided with a text 
 in any language, and your task is to translate it into English. Please translate the following text: """

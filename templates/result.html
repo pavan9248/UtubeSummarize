@@ -33,10 +33,10 @@
         <!-- <iframe width="560" height="315" src="{{url}}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>-->
          <!-- <p>{{url}}</p> -->
          <div class="container">
-            <iframe width="740" height="400" src="{{url}}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            <iframe width="800" height="400" src="{{url}}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
             <div style="margin-left: 2vw; padding: 20px; border: 1px solid black; border-radius: 20px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.2);">
                 <h2>Summary Text</h2>
-                <p style="text-align: justify;">{{summary_text}}</p>
+                <p style="text-align: justify;" id="summaryContent"></p>
                 <h2>Summary Audio</h2>
                 <audio controls>
                     <source src="./static/summary.mp3" type="audio/mpeg">
@@ -45,4 +45,64 @@
             </div>
         </div>
     </body>
+    <script>
+        // Example of summary_text with markers
+        const summaryText = `{{ summary_text | safe }}`;
+
+        // Function to parse and format the summary_text
+        function formatSummaryText(text) {
+            const container = document.getElementById('summaryContent');
+
+            // Split the text into lines
+            const lines = text.split('.');
+
+            // Initialize variables for managing the list state
+            let currentList = null;
+
+            // Iterate over each line to process formatting
+            lines.forEach(line => {
+                if (line.trim().startsWith('**')) {
+                    // If line starts with **, create a new heading
+                    if (currentList) {
+                        // If there's an ongoing list, end it
+                        container.appendChild(currentList);
+                        currentList = null;
+                    }
+
+                    const heading = document.createElement('h5');
+                    heading.innerText = line.replace(/\*\*/g, '').trim(); // Remove ** markers
+                    container.appendChild(heading);
+                } else if (line.trim().startsWith('*')) {
+                    // If line starts with *, create a new list item
+                    if (!currentList) {
+                        // If no ongoing list, start a new one
+                        currentList = document.createElement('ul');
+                    }
+
+                    const listItem = document.createElement('li');
+                    listItem.innerHTML = line.replace(/\*/g, '').trim(); // Remove * markers
+                    currentList.appendChild(listItem);
+                } else if (line.trim() !== '') {
+                    // If line doesn't start with markers, it's a paragraph
+                    if (currentList) {
+                        // If there's an ongoing list, end it
+                        container.appendChild(currentList);
+                        currentList = null;
+                    }
+
+                    const paragraph = document.createElement('p');
+                    paragraph.innerText = line.trim();
+                    container.appendChild(paragraph);
+                }
+            });
+
+            // Append any remaining list
+            if (currentList) {
+                container.appendChild(currentList);
+            }
+        }
+
+        // Call the function to format and display the summary
+        formatSummaryText(summaryText);
+    </script>
 </html>
