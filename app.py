@@ -26,7 +26,27 @@ from gtts import gTTS
 import shutil
 from language_mappings import language_map
 
+
+import streamlit as st
+from dotenv import load_dotenv
+import google.generativeai as genai
+import os
+from youtube_transcript_api import YouTubeTranscriptApi
+
+
+# Load environment variables from .env file
 load_dotenv()
+
+# Configure the Google Generative AI model with the API key
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# Prompt for summarizing the transcript
+prompt = """You are a YouTube video summarizer. You will be taking the 
+transcript text and summarizing the entire video and providing the important summary 
+in points within 250 words. Please provide the summary of the text given here: """
+
+
+
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -45,60 +65,36 @@ def index(request: Request):
     return templates.TemplateResponse("result.html", {"request": request})
 
 @app.post("/submit_url", response_class=HTMLResponse)
-async def submit_url(request: Request, url: str = Form(...), language: str = Form(...)): 
-    # Process the URL and language data as needed
-    
-    print(f"Received URL: {url}, Language: {language}")
-    
-    download_audio(url, output_path="./output", filename="audio")
-    audio_file_path = './output/audio.mp3'
-    
-    transcript_text = get_transcript(url, target_language='en')
-    # refine_text = preprocess_transcript(transcript_text)
-    youtube_url = url
-    # output_path = "./output"
-    
-    
-    if not transcript_text:
-        
-        translation_text = translate_audio( target_language='en')
-    else:
-        translation_text = transcript_text
-        
-    print(translation_text)
+async def submit_url(request: Request, url: str = Form(...), language: str = Form(...)):     
+    # Function to generate content using the generative AI model
+    def generate_content(transcript_text, prompt):
+        model = genai.GenerativeModel("gemini-pro")
+        response = model.generate_content(prompt + transcript_text)
+        return response.text
 
-    # Initialize the summarization pipeline
-    summarizer = pipeline("summarization")
+    # Function to extract the transcript from a YouTube video
+    def extract_transcript(youtube_url):
+        try:
+            video_id = youtube_url.split("=")[1]
+            transcript_txt = YouTubeTranscriptApi.get_transcript(video_id)
+            
+            transcript = ""
+            for i in transcript_txt:
+                transcript += " " + i["text"]
 
-    # Define the maximum length of each chunk
-    max_chunk_length = 1000  # Adjust as needed
+            return transcript     
 
-    # Split the translation_text into smaller chunks
-    chunks = [translation_text[i:i+max_chunk_length] for i in range(0, len(translation_text), max_chunk_length)]
+        except Exception as e:
+            raise e     
 
-    # Initialize an empty list to store the summaries
-    summary_texts = []
+    transcript_text = extract_transcript(url)
 
-    # Summarize each chunk separately
-    for chunk in chunks:
-        result = summarizer(chunk, max_length=20, min_length=10, do_sample=False)
-        summary_texts.append(result[0]['summary_text'])
-
-    # Concatenate the summaries to get the final summary for the entire text
-    final_summary = " ".join(summary_texts)
-
-    print("summary_text :",final_summary)
+    # Generate and display the summary if the transcript is available
+    if transcript_text:
+        summary = generate_content(transcript_text, prompt)
 
     
-    # Generate audio for the summary
-    tts = gTTS(final_summary, lang='en')
 
-    # Save the audio as a temporary file
-    audio_file = "summary_audio.mp3"
-    tts.save(audio_file)
-
-    # Move the audio file to the static directory
-    shutil.move(f"{audio_file}", "static/summary_audio.mp3")
 
     #Embedded url formation
     def get_embedded_url(url):
@@ -116,8 +112,8 @@ async def submit_url(request: Request, url: str = Form(...), language: str = For
     context = {
         "request": request,
         "url": get_embedded_url(url),
-        "summary_text": final_summary,
-        "audio_file": audio_file
+        "summary_text": summary,
+        # "audio_file": audio_file
     }
     
     return templates.TemplateResponse("result.html", context)
