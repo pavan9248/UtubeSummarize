@@ -11,6 +11,7 @@ import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
 import uvicorn
 
+from youtube_transcript_api.formatters import TextFormatter
 # Load environment variables from .env file
 load_dotenv()
 
@@ -21,6 +22,38 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 prompt = """You are a YouTube video summarizer. You will be taking the 
 transcript text and summarizing the entire video and providing the important summary 
 in points within 200 words. Please provide the summary of the text given here: """
+
+translate_prompt = """You are a language translator. You will be provided with a text 
+in any language, and your task is to translate it into English. Please translate the following text: """
+
+
+def translate_to_english(transcript_text):
+    return generate_content(transcript_text, translate_prompt)
+
+# Function to generate content using the generative AI model
+def generate_content(transcript_text, prompt):
+    model = genai.GenerativeModel("gemini-pro")
+    response = model.generate_content(prompt + transcript_text)
+    return response.text
+
+# Function to extract the transcript from a YouTube video
+def extract_transcript(youtube_url):
+        video_id = youtube_url.split("=")[1]
+        transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        # Try to fetch English transcript
+        try:
+            transcript_txt = transcripts.find_transcript(['en'])
+        except:
+            # If English transcript is not available, use the first available one
+            transcript_txt = transcripts.find_generated_transcript(transcripts._generated_transcripts.keys())
+        
+        # Use a formatter to get plain text
+        formatter = TextFormatter()
+        transcript = formatter.format_transcript(transcript_txt.fetch())
+        
+        return transcript     
+
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -37,30 +70,17 @@ def index(request: Request):
 @app.post("/submit_url", response_class=HTMLResponse)
 async def submit_url(request: Request, url: str = Form(...), language: str = Form(...)):     
     # Function to generate content using the generative AI model
-    def generate_content(transcript_text, prompt):
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(prompt + transcript_text)
-        return response.text
+    
 
-    # Function to extract the transcript from a YouTube video
-    def extract_transcript(youtube_url):
-        try:
-            video_id = youtube_url.split("=")[1]
-            transcript_txt = YouTubeTranscriptApi.get_transcript(video_id)
-            
-            transcript = ""
-            for i in transcript_txt:
-                transcript += " " + i["text"]
-
-            return transcript     
-
-        except Exception as e:
-            raise e     
 
     transcript_text = extract_transcript(url)
 
-    # Generate and display the summary if the transcript is available
+    # Translate the transcript to English if it's not already in English
     if transcript_text:
+        if 'en' not in url:  # Here we assume non-English transcript needs translation
+            transcript_text = translate_to_english(transcript_text)
+
+        # Generate and display the summary
         summary = generate_content(transcript_text, prompt)
 
     # Function to convert summary text to audio
