@@ -21,7 +21,7 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 # Prompt for summarizing the transcript
 prompt = """You are a YouTube video summarizer. You will be taking the 
 transcript text and summarizing the entire video and providing the important summary 
-in points within 200 words and also important topics in 3 to 4 points. Please provide them for the text given here: """
+in points with atleast 250 words and also important topics in 3 to 4 points. Please provide them for the text given here: """
 
 translate_prompt = """You are a language translator. You will be provided with a text 
 in any language, and your task is to translate it into English. Please translate the following text: """
@@ -77,7 +77,7 @@ async def submit_url(request: Request, url: str = Form(...), language: str = For
 
     # Translate the transcript to English if it's not already in English
     if transcript_text:
-        if 'en' not in url:  # Here we assume non-English transcript needs translation
+        if 'en' not in url:  
             transcript_text = translate_to_english(transcript_text)
 
         # Generate and display the summary
